@@ -1,0 +1,10 @@
+services:
+  counters:
+    build: 
+      context: .
+      dockerfile: Containerfile
+    container_name: IAT-Animals
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env

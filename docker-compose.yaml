@@ -1,9 +1,15 @@
 services:
-  counters:
+  redis:
+    image: redis:7
+    container_name: redis-mlc-boilerplate
+    ports:
+      - "6379:6379"
+
+  mlc-template:
     build: 
       context: .
       dockerfile: Containerfile
-    container_name: IAT-Animals
+    container_name: MLC-Template
     ports:
       - "3000:3000"
     env_file:

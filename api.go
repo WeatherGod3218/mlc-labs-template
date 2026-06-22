@@ -1,41 +1,41 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/WeatherGod3218/mlc-project-template/internal/airtable"
 	"github.com/WeatherGod3218/mlc-project-template/internal/firebase"
+	"github.com/WeatherGod3218/mlc-project-template/internal/redis"
 
 	"github.com/WeatherGod3218/mlc-project-template/internal/logging"
 	"github.com/sirupsen/logrus"
 )
 
-func replaceNullWithString(obj map[string]interface{}) {
-	for key, value := range obj {
-		if value == nil {
-			obj[key] = "null"
-		} else if nested, ok := value.(map[string]interface{}); ok {
-			replaceNullWithString(nested)
-		}
-	}
-}
+// func replaceNullWithString(obj []map[string]interface{}) {
+// 	for key, value := range obj {
+// 		if value == nil {
+// 			obj[key] = "null"
+// 		} else if nested, ok := value.(map[string]interface{}); ok {
+// 			replaceNullWithString(nested)
+// 		}
+// 	}
+// }
 
-func getAirtableData(c *gin.Context) ([]airtable.AirtableRecord, error) {
-	tableName, err := firebase.GetLowestTable(c)
+func getAirtableData() (*airtable.SavedData, error) {
+	tableName, err := redis.GetNextTable()
 	if err != nil {
 		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "api", "method": "getAirtableData"}).Warn("error deciding which airtable to use!")
 		return nil, err
 	}
 
-	tableURI := os.Getenv("AIRTABLE_TABLE" + tableName)
+	airTable := airtable.GetAirtableData(tableName)
 
-	airTable, err := airtable.GetAirtableURI(tableURI)
-	if err != nil {
-		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "api", "method": "getAirtab"}).Warn("error fetching airtable!")
-		return nil, err
+	if airTable == nil {
+		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "api", "method": "getAirtableData"}).Warn("error deciding which airtable to use!")
+		return nil, fmt.Errorf("Failed to find the tablename %s", tableName)
 	}
 
 	return airTable, nil
@@ -45,20 +45,10 @@ func GetHomepage(c *gin.Context) {
 	c.HTML(http.StatusOK, "index.html", gin.H{})
 }
 
-func contains(slice []string, item string) bool {
-	for _, v := range slice {
-		if v == item {
-			return true
-		}
-	}
-	return false
-}
-
 func GetData(c *gin.Context) {
-	data, err := getAirtableData(c)
+	data, err := getAirtableData()
 	if err != nil {
-		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "api", "method": "chooseAirtableMiddleware"}).Fatal("error fetching airtable!")
-
+		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "api", "method": "GetData"}).Fatal("error fetching airtable!")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -67,15 +57,16 @@ func GetData(c *gin.Context) {
 }
 
 func SubmitResults(c *gin.Context) {
-	var results map[string]interface{}
+	var results []map[string]any
 
 	err := c.ShouldBindJSON(&results)
 	if err != nil {
+		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "api", "method": "SubmitResults"}).Warn("error casting")
 		c.JSON(400, gin.H{"message": "Invalid request body"})
 		return
 	}
 
-	replaceNullWithString(results)
+	// replaceNullWithString(results)
 
 	err = firebase.PushToDatabase(c, results)
 	if err != nil {

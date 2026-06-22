@@ -47,7 +47,10 @@
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                const data = await response.json();
+                const result = await response.json();
+                const data = result.data;
+                
+                console.log(data)
 
                 let current_block = 1
                 let test_block_stimuli = []
@@ -109,7 +112,7 @@
                 }
             }
 
-            let subject_id = "iat_animal_" + Math.floor(Math.random() * 1000000);
+            let subject_id = "iat_animal_" + crypto.randomUUID();
             let worker_id = getParamFromURL('PROLIFIC_PID') || subject_id;
             let study_id = getParamFromURL('STUDY_ID') || "NULL";
             let session_id = getParamFromURL('SESSION_ID') || "NULL";
@@ -597,13 +600,14 @@
 
             timeline.push(end_block);
 
+            console.log(timeline)
             jsPsych.run({timeline: timeline, preload_images: images})
         }
 
         async function sendResults(results) {
             try {
-                // const response = await fetch('http://localhost:3000/submit-results', {
-                const response = await fetch('https://iat-animals.vercel.app/submit-results', {
+                const response = await fetch('http://localhost:3000/submit-results', {
+                //const response = await fetch('https://iat-animals.vercel.app/submit-results', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

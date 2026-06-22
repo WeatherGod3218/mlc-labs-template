@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"maps"
+	"net/http"
 	"os"
 	"slices"
 
@@ -22,14 +24,24 @@ import (
 //go:embed templates/*
 var embeddedFS embed.FS
 
+//go:embed public/*
+var staticFS embed.FS
+
 func main() {
-	redis.InitRedis()
-	firebase.InitFirebase(context.Background())
+	err := redis.InitRedis()
+	if err != nil {
+		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "main", "method": "main"}).Fatal("error initalizing redis!")
+	}
+
+	err = firebase.InitFirebase(context.Background())
+	if err != nil {
+		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "main", "method": "main"}).Fatal("error initalizing firebase!")
+	}
 
 	var tableMap map[string]string
 	var tableList []string
 
-	err := json.Unmarshal([]byte(os.Getenv("AIRTABLE_TABLES")), &tableMap)
+	err = json.Unmarshal([]byte(os.Getenv("AIRTABLE_TABLES")), &tableMap)
 	if err != nil {
 		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "main", "method": "main"}).Fatal("error loading airtables!")
 	}
@@ -56,6 +68,12 @@ func main() {
 
 	tmpl := template.Must(template.ParseFS(embeddedFS, "templates/*"))
 	router.SetHTMLTemplate(tmpl)
+
+	staticSub, err := fs.Sub(staticFS, "public")
+	if err != nil {
+		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "main", "method": "main"}).Fatal("error embedding static files!")
+	}
+	router.StaticFS("/static", http.FS(staticSub))
 
 	router.GET("/", redis.RedisRateLimiter(1, 50), GetHomepage)
 	router.GET("/get-data", redis.RedisRateLimiter(1, 50), GetData)

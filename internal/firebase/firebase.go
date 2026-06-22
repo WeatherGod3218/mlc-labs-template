@@ -17,7 +17,7 @@ import (
 
 var database *db.Client
 
-func InitFirebase(ctx context.Context) {
+func InitFirebase(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -28,15 +28,17 @@ func InitFirebase(ctx context.Context) {
 	}, options)
 
 	if err != nil {
-		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "firebase", "method": "initFirebase"}).Fatal("error initializing firebase")
+		return err
 	}
 
 	database, err = app.Database(ctx)
 	if err != nil {
-		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "firebase", "method": "initFirebase"}).Fatal("error connecting to firebase database")
+		return err
 	}
 
 	logging.Logger.WithFields(logrus.Fields{"module": "firebase", "method": "initFirebase"}).Info("connected to firebase!")
+
+	return nil
 }
 
 func CreateCountTables(tableNames []string) error {

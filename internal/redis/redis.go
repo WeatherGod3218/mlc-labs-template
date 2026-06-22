@@ -19,7 +19,7 @@ func InitRedis() error {
 
 	opt, err := redis.ParseURL(os.Getenv("REDIS_URL"))
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	newClient := redis.NewClient(opt)

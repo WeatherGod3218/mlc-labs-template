@@ -15,7 +15,7 @@ var PointerKey = os.Getenv("TRAIL_NAME") + ":queue_pointer"
 
 var advancePointerScript = redis.NewScript(`
 	local tableName = KEYS[1]
-	local pointer = ARGB[1]
+	local pointer = ARGV[1]
     local current = redis.call("GET", tableName)
     if current == pointer then
         redis.call("SET", KEYS[1], pointer + 1)

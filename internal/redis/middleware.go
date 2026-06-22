@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/WeatherGod3218/mlc-project-template/internal/logging"
@@ -13,6 +14,34 @@ import (
 )
 
 const MILLISECONDS = 1000
+
+var RatemlimitKey = os.Getenv("TRAIL_NAME") + ":ratelimit"
+
+var middlewareScript = redis.NewScript(`
+	local key = KEYS[1]
+	local now = tonumber(ARGV[1])
+	local rate = tonumber(ARGV[2])
+	local capacity = tonumber(ARGV[3])
+	local ttl = tonumber(ARGV[4])
+
+	local bucketData = redis.call("HMGET", key, "tokens", "last_refill")
+	local tokens = tonumber(bucketData[1]) or capacity
+	local lastRefill = tonumber(bucketData[2]) or now
+
+	local elapsed = math.max(0, (now - lastRefill) / 1000)
+	tokens = math.min(capacity, tokens + (elapsed * rate))
+
+	if tokens < 1 then
+		redis.call("HMSET", key, "tokens", tokens, "last_refill", now)
+		redis.call("PEXPIRE", key, ttl)
+		return {0, tokens}
+	end
+
+	tokens = tokens - 1
+	redis.call("HMSET", key, "tokens", tokens, "last_refill", now)
+	redis.call("PEXPIRE", key, ttl)
+	return {1, tokens}
+`)
 
 type TokenBucket struct {
 	client   *redis.Client
@@ -26,37 +55,10 @@ func NewTokenBucket(rate float64, capacity float64) *TokenBucket {
 
 func (tb *TokenBucket) Allow(ctx context.Context, key string) (bool, int64, error) {
 	now := time.Now().UnixMilli()
-	ipKey := fmt.Sprintf("template:ratelimit: %s", key)
-
-	script := redis.NewScript(`
-		local key = KEYS[1]
-		local now = tonumber(ARGV[1])
-		local rate = tonumber(ARGV[2])
-		local capacity = tonumber(ARGV[3])
-		local ttl = tonumber(ARGV[4])
-
-		local bucketData = redis.call("HMGET", key, "tokens", "last_refill")
-		local tokens = tonumber(bucketData[1]) or capacity
-		local lastRefill = tonumber(bucketData[2]) or now
-
-		local elapsed = math.max(0, (now - lastRefill) / 1000)
-		tokens = math.min(capacity, tokens + (elapsed * rate))
-
-		if tokens < 1 then
-			redis.call("HMSET", key, "tokens", tokens, "last_refill", now)
-			redis.call("PEXPIRE", key, ttl)
-			return {0, tokens}
-		end
-
-		tokens = tokens - 1
-		redis.call("HMSET", key, "tokens", tokens, "last_refill", now)
-		redis.call("PEXPIRE", key, ttl)
-		return {1, tokens}
-	`)
-
+	ipKey := fmt.Sprintf("%s%s", RatemlimitKey, key)
 	ttlMs := int64((tb.capacity / tb.rate) * MILLISECONDS * 2)
 
-	result, err := script.Run(ctx, tb.client, []string{ipKey}, now, tb.rate, tb.capacity, ttlMs).Int64Slice()
+	result, err := middlewareScript.Run(ctx, tb.client, []string{ipKey}, now, tb.rate, tb.capacity, ttlMs).Int64Slice()
 	if err != nil {
 		return false, 0, fmt.Errorf("redis script: %w", err)
 	}
@@ -70,10 +72,8 @@ func RedisRateLimiter(rate float64, capacity float64) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
-
-		logging.Logger.WithFields(logrus.Fields{"module": "api", "method": "RedisRateLimiter"}).Info(fmt.Sprintf("Recieved from IP:%s", ip))
-
 		allowed, tokens, err := limiter.Allow(c, ip)
+
 		if err != nil {
 			logging.Logger.WithFields(logrus.Fields{"module": "api", "method": "RedisRateLimiter"}).Warn(fmt.Sprintf("Failure in the redis cache %v", err))
 		} else if !allowed {

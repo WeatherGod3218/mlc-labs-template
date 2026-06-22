@@ -3,14 +3,26 @@ package redis
 import (
 	"context"
 	"math/rand/v2"
+	"os"
+	"strconv"
+	"time"
 
-	"github.com/WeatherGod3218/mlc-project-template/internal/logging"
 	"github.com/redis/go-redis/v9"
-	"github.com/sirupsen/logrus"
 )
 
-const QueueKey = "queued_tables"
-const PointerKey = "queue_pointer"
+var QueueKey = os.Getenv("TRAIL_NAME") + ":queued_tables"
+var PointerKey = os.Getenv("TRAIL_NAME") + ":queue_pointer"
+
+var advancePointerScript = redis.NewScript(`
+	local tableName = KEYS[1]
+	local pointer = ARGB[1]
+    local current = redis.call("GET", tableName)
+    if current == pointer then
+        redis.call("SET", KEYS[1], pointer + 1)
+        return 1
+    end
+    return 0
+`)
 
 func reshuffleQueue() error {
 	ctx := context.Background()
@@ -34,13 +46,14 @@ func reshuffleQueue() error {
 }
 
 func InitQueue(tables []string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
 
-	exists, err := client.Exists(ctx, QueueKey).Result()
+	set, err := client.SetNX(ctx, QueueKey+":lock", 1, 0).Result()
 	if err != nil {
 		return err
 	}
-	if exists > 0 {
+	if !set {
 		return nil
 	}
 
@@ -57,33 +70,42 @@ func InitQueue(tables []string) error {
 }
 
 func GetNextTable() (string, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	length, err := client.LLen(ctx, QueueKey).Result()
-	if err != nil {
-		return "", err
-	}
-
-	pointer, err := client.Get(ctx, PointerKey).Int64()
-	if err != nil {
-		return "", err
-	}
-
-	if pointer >= length {
-		if err := reshuffleQueue(); err != nil {
+	for {
+		length, err := client.LLen(ctx, QueueKey).Result()
+		if err != nil {
 			return "", err
 		}
-		pointer = 0
+
+		pointer, err := client.Get(ctx, PointerKey).Int64()
+		if err != nil {
+			return "", err
+		}
+
+		if pointer >= length {
+			if err := reshuffleQueue(); err != nil {
+				return "", err
+			}
+			pointer = 0
+		}
+
+		table, err := client.LIndex(ctx, QueueKey, pointer).Result()
+		if err != nil {
+			return "", err
+		}
+
+		swapped, err := advancePointerScript.Run(ctx, client,
+			[]string{PointerKey},
+			strconv.FormatInt(pointer, 10),
+		).Int()
+		if err != nil {
+			return "", err
+		}
+
+		if swapped == 1 {
+			return table, nil
+		}
 	}
-
-	table, err := client.LIndex(ctx, QueueKey, pointer).Result()
-	if err != nil {
-		return "", err
-	}
-
-	err = client.Incr(ctx, PointerKey).Err()
-
-	logging.Logger.WithFields(logrus.Fields{"table": table, "module": "api", "method": "GetData"}).Info("Selected New Table!")
-
-	return table, err
 }

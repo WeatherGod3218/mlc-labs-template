@@ -71,44 +71,9 @@ func PushToDatabase(ctx context.Context, cleanedData []map[string]any) error {
 	if err != nil {
 		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "firebase", "method": "PushToDatabase"}).Warn("error generating the UUID7")
 	}
-	_, err = database.NewRef(fmt.Sprintf("users/%s", id.String())).Push(ctx, cleanedData)
+	err = database.NewRef(fmt.Sprintf("users/%s", id.String())).Set(ctx, cleanedData)
 
 	return err
-}
-
-func GetLowestTable(ctx context.Context) (string, error) {
-	ref := database.NewRef("count")
-
-	var countData map[string]int
-	err := ref.Get(ctx, &countData)
-	if err != nil {
-		return "", err
-	}
-
-	if len(countData) == 0 {
-		return "", fmt.Errorf("no count data available")
-	}
-
-	var lowestKey string
-	first := true
-
-	for key, value := range countData {
-		if first || value < countData[lowestKey] {
-			lowestKey = key
-			first = false
-		}
-	}
-
-	updates := map[string]interface{}{
-		"count/" + lowestKey: countData[lowestKey] + 1,
-	}
-
-	err = database.NewRef("").Update(ctx, updates)
-	if err != nil {
-		return "", err
-	}
-
-	return lowestKey, nil
 }
 
 // func GetLowestTable(ctx context.Context) (string, error) {

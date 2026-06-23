@@ -27,8 +27,8 @@ import (
 func getAirtableData() (*airtable.SavedData, error) {
 	tableName, err := redis.GetNextTable()
 	if err != nil {
-		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "api", "method": "getAirtableData"}).Warn("error deciding which airtable to use!")
-		return nil, err
+		logging.Logger.WithFields(logrus.Fields{"error": err, "module": "api", "method": "getAirtableData"}).Warn("error in firebase deciding next table!")
+		tableName = airtable.GetNextAirtable()
 	}
 
 	airTable := airtable.GetAirtableData(tableName)

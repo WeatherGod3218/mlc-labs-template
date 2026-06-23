@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/rand"
 	"sort"
+	"sync"
 	"time"
 
 	"net/http"
@@ -53,6 +54,8 @@ var AirtableURI map[string]string = make(map[string]string)
 
 var QueuedTables []string
 var CurrentAirtable int = 0
+
+var mu sync.RWMutex
 
 func contains(slice []string, item string) bool {
 	for _, v := range slice {
@@ -217,14 +220,22 @@ func FetchAirtable(table string) ([]AirtableRecord, error) {
 }
 
 func GetNextAirtable() string {
-	if CurrentAirtable > len(QueuedTables) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if CurrentAirtable >= len(QueuedTables) {
 		CurrentAirtable = 0
 		rand.Shuffle(len(QueuedTables), func(i int, j int) {
 			QueuedTables[i], QueuedTables[j] = QueuedTables[j], QueuedTables[i]
 		})
 	}
 
-	return QueuedTables[CurrentAirtable]
+	val := QueuedTables[CurrentAirtable]
+
+	CurrentAirtable++
+
+	return val
+
 }
 
 func GetAirtableData(airtable string) *SavedData {
